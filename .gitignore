@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.env
+.env.copy.example
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Piper TTS voice models -- auto-downloaded on first use by app/api/voice_ws.py when
+# TTS_PROVIDER=piper (core/.voice_models, bind-mounted into the container at /app/core).
+core/.voice_models/
+
+eval_results/

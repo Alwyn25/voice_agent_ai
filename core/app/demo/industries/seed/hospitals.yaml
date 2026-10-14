@@ -1,0 +1,73 @@
+# Hospitals and clinics — booking an appointment with a doctor, one branch per demo.
+# Source: the "Hospitals" tab and the Field guide of the prospect workbook (Phonn_list_3.xlsx).
+#
+# DATA ONLY: no demo agent yet (no sample_data / sample_template / agent / prompts). The tab
+# imports normally — company records, people, facts and each record's knowledge base — but
+# demo links can't be made until a later version adds the agent. Loaded into demo_industries
+# on first start when the industry does not exist yet; after that, admins manage it.
+key: hospitals
+label: Hospitals
+version: 1
+
+use_case:
+  key: doctor_appointment_booking
+  label: Booking an appointment with a doctor (one branch per demo)
+
+trusted_sources: >-
+  Trusted sources only: the clinic's official website and its verified Google Business
+  Profile. No doctor-listing or aggregator sites. A field no trusted source states stays
+  blank, and the agent offers to have the front desk confirm it.
+
+facts_fields:
+  - {key: branch_area, label: Branch area, type: text, sheet_column: Branch area,
+     description: "The branch this demo is for (from the prospect list)"}
+  - {key: clinic_name, label: Clinic name, type: text, required: true, sheet_column: Clinic name,
+     description: "Name and pronunciation, specialty (dental, derma, IVF, physio, diagnostics)"}
+  - {key: branches, label: Branches, type: text, required: true, sheet_column: Branches,
+     description: "Address, area, map pin, opening hours per branch"}
+  - {key: doctors, label: Doctors, type: text, sheet_column: Doctors,
+     description: "Name, qualification, specialty, consultation days and timings, branch"}
+  - {key: consultation_fee, label: Consultation fee, type: text, sheet_column: Consultation fee,
+     description: "New and follow-up fee, if published"}
+  - {key: services_or_packages, label: Services or packages, type: text, sheet_column: Services or packages,
+     description: "Top 10 services or test packages with prices, if published"}
+  - {key: test_preparation, label: Test preparation, type: text, sheet_column: Test preparation,
+     description: "Fasting or other instructions, only as published (labs)"}
+  - {key: home_collection, label: Home collection, type: text, sheet_column: Home collection,
+     description: "Available or not, serviceable areas or pin codes, time windows (labs)"}
+  - {key: insurance, label: Insurance, type: text, sheet_column: Insurance,
+     description: "TPA or insurance tie-ups, cashless or not"}
+  - {key: booking_policy, label: Booking policy, type: text, sheet_column: Booking policy,
+     description: "Walk-ins, cancellation and rescheduling rules"}
+  - {key: emergency_and_contact, label: Emergency and contact, type: text, sheet_column: Emergency and contact,
+     description: "Emergency number, front-desk phone"}
+
+# Minimum to go live (Field guide): clinic name, 1 branch with address and hours (required
+# flags above), and doctors or services. Doctors and services are free text (one entry holds
+# a name, qualification and timings), so the check is "at least one of them filled in"; the
+# reviewer confirms there are 2.
+minimum:
+  - {any_of: [doctors, services_or_packages], message: doctors or services listed}
+
+sheet:
+  tab_names: [Hospitals]
+  header_markers: [Hospital, Branch area]
+  # One record per hospital branch: "Acme Hospital" + "Whitefield". The branch comes
+  # from the prospect list, so the record's key is stable from the first import.
+  record_name_field: branch_area
+  skip_statuses: [Not a fit]
+  example_markers: [Example]
+  company:
+    company_name: Hospital
+    city: City
+    website_url: Official website URL
+    trigger_note: Trigger / notes
+    research_verified: Verified
+    research_status: Status
+    source_urls: Source URLs
+    fetched_at: Date scraped
+  contacts:
+    full_name: Buyer name
+    role: Buyer role
+    email: Email
+    linkedin_url: LinkedIn URL

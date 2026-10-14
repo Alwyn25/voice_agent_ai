@@ -1,0 +1,64 @@
+# D2C brands — order status check.
+# Source: the "D2C" tab and the Field guide of the prospect workbook (Phonn_list_3.xlsx).
+#
+# DATA ONLY: no demo agent yet (no sample_data / sample_template / agent / prompts). The tab
+# imports normally — company records, people, facts and each record's knowledge base — but
+# demo links can't be made until a later version adds the agent. Loaded into demo_industries
+# on first start when the industry does not exist yet; after that, admins manage it.
+key: d2c
+label: D2C
+version: 1
+
+use_case:
+  key: order_status_check
+  label: Order status check
+
+trusted_sources: >-
+  Trusted sources only: the brand's own storefront, product and shipping pages. No marketplace
+  listings (Amazon, Flipkart, Nykaa) or review sites. A field no trusted source states stays
+  blank, and the agent offers to have support confirm it. Returns, refunds and cancellation
+  are not scraped; the demo uses the assumed policy.
+
+facts_fields:
+  - {key: category, label: Category, type: text, sheet_column: Category,
+     description: "What the brand sells (from the prospect list)"}
+  - {key: brand_name, label: Brand name, type: text, required: true, sheet_column: Brand name,
+     description: "Name and pronunciation"}
+  - {key: product_catalogue, label: Product catalogue, type: text, required: true, sheet_column: Product catalogue,
+     description: "Top 10 products: name, variants (size, colour, flavour), price"}
+  - {key: best_seller, label: Best-seller, type: text, sheet_column: Best-seller,
+     description: "The one product used in the sample order"}
+  - {key: shipping_timelines, label: Shipping timelines, type: text, required: true, sheet_column: Shipping timelines,
+     description: "Dispatch time and delivery days (metro vs rest of India)"}
+  - {key: shipping_charges, label: Shipping charges, type: text, sheet_column: Shipping charges,
+     description: "Charges and free-shipping threshold"}
+  - {key: order_tracking, label: Order tracking, type: text, sheet_column: Order tracking,
+     description: "How customers track (tracking page, SMS, WhatsApp, email)"}
+  - {key: payment_options, label: Payment options, type: list, sheet_column: Payment options,
+     description: "Prepaid methods, COD availability"}
+  - {key: support, label: Support, type: text, sheet_column: Support,
+     description: "Hours, phone, email, WhatsApp number"}
+
+# Minimum to go live (Field guide): brand name, 1 product with price, shipping timeline —
+# the required flags above.
+minimum: []
+
+sheet:
+  tab_names: [D2C]
+  header_markers: [Brand, Brand name]
+  skip_statuses: [Not a fit]
+  example_markers: [Example]
+  company:
+    company_name: Brand
+    city: City
+    website_url: Official website URL
+    trigger_note: Trigger / notes
+    research_verified: Verified
+    research_status: Status
+    source_urls: Source URLs
+    fetched_at: Date scraped
+  contacts:
+    full_name: Buyer name
+    role: Buyer role
+    email: Email
+    linkedin_url: LinkedIn URL

@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: aivoiceagent
+      POSTGRES_PASSWORD: aivoiceagent
+      POSTGRES_DB: aivoiceagent
+    ports: ["5437:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aivoiceagent"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6382:6379"]
+    volumes: [redisdata:/data]
+
+  core:
+    build:
+      context: .
+      dockerfile: core/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://aivoiceagent:aivoiceagent@postgres:5432/aivoiceagent
+      DATABASE_URL_SYNC: postgresql+psycopg2://aivoiceagent:aivoiceagent@postgres:5432/aivoiceagent
+      REDIS_URL: redis://redis:6379/0
+      # Without this, faster-whisper caches to the container's own filesystem (its
+      # default ~/.cache), which is wiped every time the container is recreated -- so
+      # STT_PROVIDER=whisper would silently re-download the ~150MB model from
+      # HuggingFace (60s+, once measured hanging a live call past its own timeout)
+      # on the very first call after every `docker compose up`/rebuild. Pointing it at
+      # the bind-mounted core/.voice_models (already gitignored, already used by Piper)
+      # makes that download a one-time cost that survives container recreates.
+      HF_HOME: /app/core/.voice_models/hf_cache
+    ports: ["8000:8000"]
+    # Bind-mounts the whole repo over the image's baked-in copy, matching the
+    # Dockerfile's layout (build context is repo root, WORKDIR ends at /app/core) —
+    # so an edit on the host is visible inside the container immediately, paired with
+    # --reload below. No rebuild needed for a Python source change. A NEW dependency in
+    # requirements.txt still needs `--build`, since that's installed at image build
+    # time, not from this mount.
+    volumes:
+      - .:/app
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+volumes:
+  pgdata:
+  redisdata:

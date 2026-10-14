@@ -1,0 +1,60 @@
+# Hotels — room booking, one property per demo.
+# Source: the "Hotels" tab and the Field guide of the prospect workbook (Phonn_list_3.xlsx).
+#
+# DATA ONLY: no demo agent yet (no sample_data / sample_template / agent / prompts). The tab
+# imports normally — company records, people, facts and each record's knowledge base — but
+# demo links can't be made until a later version adds the agent. Loaded into demo_industries
+# on first start when the industry does not exist yet; after that, admins manage it.
+key: hotels
+label: Hotels
+version: 1
+
+use_case:
+  key: room_booking
+  label: Room booking (one property per demo)
+
+trusted_sources: >-
+  Trusted sources only: the hotel's official website (including its own booking engine) and
+  its verified Google Business Profile. No third-party booking sites. A field no trusted
+  source states stays blank, and the agent offers to confirm it.
+
+facts_fields:
+  - {key: property_name, label: Property name, type: text, required: true, sheet_column: Property name,
+     description: "Name and pronunciation"}
+  - {key: location, label: Location, type: text, required: true, sheet_column: Location,
+     description: "Address, map pin, distance from airport or railway station"}
+  - {key: room_types, label: Room types, type: text, required: true, sheet_column: Room types,
+     description: "Name, occupancy, bed type, size"}
+  - {key: rates, label: Rates, type: text, required: true, sheet_column: Rates,
+     description: "Starting rate per room type, breakfast included or not"}
+  - {key: check_in_and_check_out, label: Check-in and check-out, type: text, sheet_column: Check-in and check-out,
+     description: "Times, early check-in or late checkout rules"}
+  - {key: amenities, label: Amenities, type: list, sheet_column: Amenities,
+     description: "Pool, spa, restaurant, Wi-Fi, parking, airport pickup"}
+  - {key: policies, label: Policies, type: text, sheet_column: Policies,
+     description: "Cancellation, ID requirements, pets, children"}
+
+# Minimum to go live (Field guide): name, 1 address, and 2 room types with rates — the
+# required flags above. Room types are free text (one entry holds occupancy, bed and size),
+# so the reviewer confirms there are 2.
+minimum: []
+
+sheet:
+  tab_names: [Hotels]
+  header_markers: [Hotel or chain, Property name]
+  skip_statuses: [Not a fit]
+  example_markers: [Example]
+  company:
+    company_name: Hotel or chain
+    city: City
+    website_url: Official website URL
+    trigger_note: Trigger / notes
+    research_verified: Verified
+    research_status: Status
+    source_urls: Source URLs
+    fetched_at: Date scraped
+  contacts:
+    full_name: Buyer name
+    role: Buyer role
+    email: Email
+    linkedin_url: LinkedIn URL

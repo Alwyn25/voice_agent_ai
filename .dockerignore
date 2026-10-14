@@ -1,0 +1,13 @@
+.git/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.env
+.venv/
+venv/
+node_modules/
+# Downloaded Whisper/Piper model weights (core/app/api/voice_ws.py) -- large, and HF's
+# symlink-based cache layout breaks the Docker build context transfer outright. Nothing
+# in here belongs in the image; STT_PROVIDER=whisper/TTS_PROVIDER=piper re-download it
+# into the running container on first use.
+core/.voice_models/

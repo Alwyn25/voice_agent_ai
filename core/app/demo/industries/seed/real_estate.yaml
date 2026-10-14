@@ -1,0 +1,161 @@
+# Real estate — new-project enquiry and site-visit booking.
+# Source: "Real estate" industry PDF + the Field guide / "Real estate" tab of the prospect
+# workbook (Phonn_list_3.xlsx). Loaded into demo_industries on first start when the industry
+# does not exist yet; after that, admins manage it (seeds never overwrite admin edits).
+key: real_estate
+label: Real estate
+version: 1
+
+use_case:
+  key: site_visit_booking
+  label: New-project enquiry and site-visit booking
+  prospect_plays: A home buyer who saw the project ad
+  goal: slot_booked
+  goal_label: A site visit booked in one of the sample slots, reference read back
+
+# Trusted-source rule shown to the research team and copied into the agent's guardrails.
+trusted_sources: >-
+  The developer's official website, the developer's verified Google Business Profile, and ads
+  the developer itself runs. No property portals or broker listings. A field no trusted source
+  states stays blank, and the agent says the sales team will confirm it.
+
+# Company/project facts. These become the agent's knowledge base. `sheet_column` is the
+# header in the industry tab of the prospect workbook.
+facts_fields:
+  - {key: developer_name, label: Developer name, type: text, sheet_column: Developer}
+  - {key: project_name, label: Project name, type: text, required: true, sheet_column: Project name}
+  - {key: rera_number, label: RERA number, type: text, sheet_column: RERA number}
+  - {key: location, label: Location, type: text, required: true, sheet_column: Location}
+  - {key: landmarks, label: Landmarks, type: list, sheet_column: Landmarks}
+  - {key: configurations, label: Configurations, type: unit_types, required: true, sheet_column: Configurations}
+  - {key: price, label: Price, type: text, sheet_column: Price}
+  - {key: amenities, label: Amenities, type: list, sheet_column: Amenities}
+  - {key: possession_date, label: Possession date, type: month, sheet_column: Possession date}
+  - {key: approved_banks, label: Approved banks, type: list, sheet_column: Approved banks}
+  - {key: sales_office, label: Sales office, type: text, required: true, sheet_column: Sales office}
+  - {key: current_offer, label: Current offer, type: text, sheet_column: Current offer}
+
+# Minimum to go live (PDF): project name, location, at least 2 BHK types, sales office
+# address. The required flags above cover the blanks; this adds the count.
+minimum:
+  - {field: configurations, min_items: 2, message: at least 2 BHK types}
+
+# How the industry tab of the prospect workbook maps onto a company record and its people.
+sheet:
+  tab_names: [Real estate]
+  header_markers: [Developer, Project name]
+  record_name_field: project_name           # company + this fact make the record's natural key
+  skip_statuses: [Not a fit]
+  example_markers: [Example]
+  company:
+    company_name: Developer
+    city: City
+    website_url: Official website URL
+    trigger_note: Trigger / notes
+    research_verified: Verified
+    research_status: Status
+    source_urls: Source URLs
+    fetched_at: Date scraped
+  contacts:
+    full_name: Buyer name
+    role: Buyer role
+    email: Email
+    linkedin_url: LinkedIn URL
+
+# Shape of the dummy data (what the agent knows before the call: what a lead form or ad
+# platform hands over, plus the developer's calendar).
+sample_data:
+  caller: sample_caller
+  lead_source: text_template
+  enquiry_minutes_before_call: {type: integer, min: 0, max: 1440}
+  free_visit_slots: {type: list, min_items: 2, max_items: 12, item: relative_slot}
+  visit_location: text_template
+  sales_contact: sample_caller
+  booking_reference: {type: ref_code, prefix: VIS-}
+  qualifying_questions: {type: list, min_items: 1, item: string}
+
+# The industry-wide dummy data every record uses unless an admin uploads its own (PDF values).
+sample_template:
+  caller: {name: Rahul, phone_masked: "+91 98XXX XXX01"}
+  lead_source: Facebook lead form for {{project_name}}
+  enquiry_minutes_before_call: 10
+  free_visit_slots:
+    - {day_offset: 1, time: "11:00", label: Site visit}
+    - {day_offset: 1, time: "16:00", label: Site visit}
+    - {day_offset: 2, time: "11:00", label: Site visit}
+  visit_location: "{{project_name}}, {{location}}"
+  sales_contact: {name: Priya, phone_masked: "+91 98XXX XXX02"}
+  booking_reference: VIS-1187
+  qualifying_questions:
+    - Which configuration they are looking at (for example 2 or 3 BHK)
+    - Budget range
+    - Own use or investment
+    - When they plan to buy
+    - Whether they need a home loan
+    - A convenient slot for a site visit
+
+# Titles on the prospect's Sample data tab.
+sample_labels:
+  caller: The caller (you)
+  lead_source: Lead source
+  enquiry_minutes_before_call: Enquired (minutes before the call)
+  free_visit_slots: Free site-visit slots
+  visit_location: Visit location
+  sales_contact: Sales contact
+  booking_reference: Booking reference
+  qualifying_questions: What the agent will ask
+
+skip_weekdays: []
+
+agent:
+  persona: Sales enquiry desk for {{project_name}} by {{developer_name}}
+  languages: [en-IN, hi-IN, hinglish]
+  greeting: >-
+    Hello, this is the {{project_name}} enquiry desk.
+    I see you enquired about {{project_name}} a few minutes ago. How can I help?
+  instructions: |
+    You are the enquiry desk for {{project_name}}, a project by {{developer_name}}.
+    Answer questions about the project only from the knowledge base. Qualify the caller with
+    the qualifying questions, naturally, one at a time. Offer the free visit slots and book
+    one when the caller agrees, then read back the day, date, time, their name and the
+    booking reference.
+  guardrails:
+    - Never state a RERA number, bank, price, size or possession date that is not in the knowledge base; say the sales team will confirm it.
+    - Call sizes "size" unless the knowledge base says carpet or super built-up area.
+    - Never promise a discount; offer a callback from the sales contact instead.
+    - Give a travel time only if the knowledge base states it.
+
+# Runs on the existing real-estate engine pack: its tuned booking tools (search_slots,
+# book_appointment, reschedule…) and planner guards, inside each record's own demo tenant.
+# The visit slots come from free_visit_slots in the dummy data (app/demo/scheduling.py).
+engine:
+  pack: real_estate_india
+  slot_collection: free_visit_slots
+  slot_minutes: 60
+  visit_location_facts: [sales_office, location]   # first one filled in is where visits happen
+  staff_field: sales_contact
+  # Only these pack tools exist in a demo tenant. Left out on purpose: inventory_query (a demo
+  # has no unit inventory; an empty search made the agent deny a configuration the facts list),
+  # send_document (WhatsApp to the caller), create_customer (each call already has its sample
+  # lead), tickets and do-not-contact (nothing to act on in a demo).
+  tools: [search_slots, book_appointment, reschedule_appointment, cancel_appointment,
+          locate_centre, my_appointments, knowledge_lookup, schedule_callback,
+          record_customer_fact, update_customer_profile, verify_identity]
+
+prompts:
+  - 3BHK ka price kya hai?
+  - Is it RERA approved, and when is possession?
+  - Book a visit tomorrow
+
+qa_questions:
+  - {say: "2 BHK ka starting price kya hai?", expect: "Gives the published starting price and sizes, or says the sales team will share the price sheet if none is published"}
+  - {say: "What about 3 BHK?", expect: "Answers from the published configurations and price only"}
+  - {say: "Is it ready to move?", expect: "Answers from the possession date, or says the team will confirm"}
+  - {say: "Is that carpet or super built-up?", expect: "Says the sales team will confirm the area type unless the facts state it"}
+  - {say: "What's the price per sq ft?", expect: "Does not calculate one; the sales team shares it with the price sheet"}
+  - {say: "What's the RERA number?", expect: "Gives the published RERA number, or says the team will share it; never invents one"}
+  - {say: "Which banks give loans?", expect: "Names only published banks, otherwise says the sales team will confirm"}
+  - {say: "Kal 11 baje visit book karo", expect: "Books tomorrow's 11 am slot and reads back the date, name and VIS-1187"}
+  - {say: "Can you give a discount?", expect: "Does not promise one; offers a callback from the sales contact"}
+
+compliance: []

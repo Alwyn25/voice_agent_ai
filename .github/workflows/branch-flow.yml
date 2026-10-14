@@ -1,0 +1,21 @@
+name: branch-flow
+on:
+  pull_request:
+    branches: [main, uat]
+    types: [opened, reopened, synchronize, edited]
+jobs:
+  enforce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check source branch
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          case "$BASE" in
+            main) [[ "$HEAD" == "uat" || "$HEAD" == hotfix/* ]] \
+                    || { echo "::error::main only accepts PRs from uat or hotfix/*"; exit 1; } ;;
+            uat)  [[ "$HEAD" == "dev" || "$HEAD" == "main" || "$HEAD" == hotfix/* ]] \
+                    || { echo "::error::uat only accepts PRs from dev, main (back-merge) or hotfix/*"; exit 1; } ;;
+          esac
+          echo "OK: $HEAD -> $BASE"

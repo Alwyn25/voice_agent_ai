@@ -1,0 +1,49 @@
+# Distributors — retailer phone order.
+# Source: the "Distributors" tab of the prospect workbook (Phonn_list_3.xlsx) and
+# docs/gtm-demo-links.md §4.8. The workbook has no Field guide rows for this tab yet.
+#
+# DATA ONLY: no demo agent yet (no sample_data / sample_template / agent / prompts). The tab
+# imports normally — company records, people, facts and each record's knowledge base — but
+# demo links can't be made until a later version adds the agent. Loaded into demo_industries
+# on first start when the industry does not exist yet; after that, admins manage it.
+#
+# Only "Brands carried" has a column today. The other facts are filled in on the record
+# screen until the research team adds columns for them; an import then offers to connect a
+# new column to the fact with the same name ("Areas served" → service_area).
+key: distributors
+label: Distributors
+version: 1
+
+use_case:
+  key: retailer_phone_order
+  label: Retailer phone order
+  prospect_plays: A kirana or restaurant owner
+
+facts_fields:
+  - {key: brands_carried, label: Brands carried, type: list, required: true, sheet_column: Brands carried}
+  - {key: service_area, label: Areas served, type: text}
+  - {key: ordering_terms, label: Ordering terms, type: text, required: true,
+     description: "Minimum order and delivery days"}
+  - {key: credit_terms, label: Credit terms, type: text}
+
+minimum: []
+
+sheet:
+  tab_names: [Distributors]
+  header_markers: [Distributor, Brands carried]
+  skip_statuses: [Not a fit]
+  example_markers: [Example]
+  company:
+    company_name: Distributor
+    city: City
+    website_url: Official website URL
+    trigger_note: Trigger / notes
+    research_verified: Verified
+    research_status: Status
+    # The brand's "find a distributor" page the row came from.
+    source_urls: Source page
+  contacts:
+    full_name: Buyer name
+    role: Buyer role
+    email: Email
+    linkedin_url: LinkedIn URL

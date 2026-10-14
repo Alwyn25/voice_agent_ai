@@ -1,0 +1,349 @@
+rule_set: motorworks_turn_policy
+description: >
+  Motorworks Auto Care in-conversation policy. This is the load-sensitive set: turn rules are
+  evaluated TWICE on every turn (once before the model speaks, once after it reports
+  intent and sentiment), so rule count here multiplies directly into per-turn latency.
+applies_to: [turn]
+rules:
+
+  # ---------------------------------------------------------------- hard stops
+  - id: dnc_state_stops_everything
+    priority: 0
+    terminal: true
+    when: {field: customer.current_state, op: eq, value: do_not_contact}
+    then:
+      - block: {scope: all, reason: "Customer has asked not to be contacted"}
+
+  - id: legal_dispute_no_discussion
+    priority: 1
+    terminal: true
+    when: {field: customer.tags, op: contains, value: legal_dispute}
+    then:
+      - escalate:
+          type: immediate
+          reason: "Account is in legal dispute - transfer to a human immediately"
+
+  # ---------------------------------------------------------------- identity
+  - id: identity_before_personal_data
+    priority: 10
+    when:
+      all:
+        - {field: session.identity_verified, op: eq, value: false}
+        - {field: turn.intent, op: in, value: [service_history, invoice_query, personal_details]}
+    then:
+      - require:
+          condition: "session.identity_verified == true"
+          reason: "Verify the customer before discussing their records"
+
+  - id: identity_before_payment_talk
+    priority: 11
+    when:
+      all:
+        - {field: session.identity_verified, op: eq, value: false}
+        - {field: turn.intent, op: eq, value: payment_query}
+    then:
+      - require:
+          condition: "session.identity_verified == true"
+          reason: "Verify the customer before discussing payments"
+
+  - id: identity_before_cancellation
+    priority: 12
+    when:
+      all:
+        - {field: session.identity_verified, op: eq, value: false}
+        - {field: turn.intent, op: eq, value: cancel_appointment}
+    then:
+      - require:
+          condition: "session.identity_verified == true"
+          reason: "Verify the customer before cancelling a booking"
+
+  - id: inbound_identity_lighter
+    priority: 13
+    when:
+      all:
+        - {field: session.direction, op: eq, value: inbound}
+        - {field: turn.intent, op: eq, value: general_enquiry}
+    then:
+      - set: {identity_level: light}
+
+  # ---------------------------------------------------------------- opt-out
+  - id: opt_out_request
+    priority: 20
+    when: {field: turn.intent, op: in, value: [opt_out, do_not_call, remove_number]}
+    then:
+      - set: {honour_opt_out: true}
+
+  - id: opt_out_no_retention_pitch
+    priority: 21
+    when:
+      all:
+        - {field: turn.intent, op: in, value: [opt_out, do_not_call]}
+        - {field: session.direction, op: eq, value: outbound}
+    then:
+      - block: {scope: "tool:start_retention_offer", reason: "Never pitch after an opt-out request"}
+
+  # ---------------------------------------------------------------- sentiment
+  - id: angry_customer_escalates
+    priority: 30
+    when:
+      all:
+        - {field: turn.sentiment, op: eq, value: angry}
+        - {field: session.turn_index, op: gte, value: 2}
+    then:
+      - escalate: {type: immediate, reason: "Customer is angry"}
+
+  - id: sustained_frustration
+    priority: 31
+    when:
+      all:
+        - {field: turn.sentiment, op: in, value: [frustrated, angry]}
+        - {field: session.turn_index, op: gte, value: 6}
+    then:
+      - escalate: {type: immediate, reason: "Frustration has persisted across the call"}
+
+  - id: abusive_language_ends_call
+    priority: 32
+    terminal: true
+    when: {field: turn.intent, op: eq, value: abusive}
+    then:
+      - escalate: {type: immediate, reason: "Abusive language - hand to a supervisor"}
+
+  - id: distress_signal
+    priority: 33
+    when: {field: turn.intent, op: eq, value: accident_report}
+    then:
+      - escalate: {type: immediate, reason: "Customer reporting an accident - human handles this"}
+
+  - id: vip_negative_sentiment
+    priority: 34
+    when:
+      all:
+        - {field: customer.priority_score, op: gte, value: 80}
+        - {field: turn.sentiment, op: in, value: [negative, frustrated, angry]}
+    then:
+      - escalate: {type: immediate, reason: "High-value customer is unhappy"}
+
+  # ---------------------------------------------------------------- complaints
+  - id: repeat_repair_complaint
+    priority: 40
+    when: {field: turn.intent, op: eq, value: repeat_repair}
+    then:
+      - escalate:
+          type: immediate
+          reason: "Same fault reported again - service manager must review"
+
+  - id: safety_complaint
+    priority: 41
+    when: {field: turn.intent, op: in, value: [brake_issue, steering_issue, safety_concern]}
+    then:
+      - escalate: {type: immediate, reason: "Safety-related complaint"}
+
+  - id: billing_dispute
+    priority: 42
+    when: {field: turn.intent, op: eq, value: billing_dispute}
+    then:
+      - escalate: {type: scheduled, reason: "Billing dispute needs an account review"}
+
+  - id: warranty_rejection_dispute
+    priority: 43
+    when: {field: turn.intent, op: eq, value: warranty_dispute}
+    then:
+      - escalate: {type: scheduled, reason: "Warranty claim dispute"}
+
+  - id: damage_claim
+    priority: 44
+    when: {field: turn.intent, op: eq, value: damage_claim}
+    then:
+      - escalate: {type: immediate, reason: "Customer alleges damage during service"}
+
+  - id: third_complaint_this_month
+    priority: 45
+    when:
+      all:
+        - {field: customer.tags, op: contains, value: complained_last_30d}
+        - {field: turn.sentiment, op: in, value: [negative, frustrated, angry]}
+    then:
+      - escalate: {type: immediate, reason: "Repeat complainant within the month"}
+
+  # ---------------------------------------------------------------- quotes
+  - id: no_quote_without_inspection
+    priority: 50
+    when: {field: turn.intent, op: eq, value: repair_quote}
+    then:
+      - require:
+          condition: "inspection_completed"
+          reason: "Repair quotes need an inspection first - offer an estimate range only"
+
+  - id: no_discount_authority
+    priority: 51
+    when: {field: turn.intent, op: eq, value: discount_request}
+    then:
+      - block:
+          scope: "tool:apply_discount"
+          reason: "The agent cannot approve discounts - offer a callback from the manager"
+
+  - id: no_insurance_commitment
+    priority: 52
+    when: {field: turn.intent, op: eq, value: insurance_claim}
+    then:
+      - require:
+          condition: "insurance_desk_confirmed"
+          reason: "Never commit on insurance coverage - route to the insurance desk"
+
+  - id: price_objection_no_improvised_offer
+    priority: 53
+    when: {field: turn.intent, op: eq, value: price_objection}
+    then:
+      - block:
+          scope: "tool:create_custom_offer"
+          reason: "Only published offers may be quoted"
+
+  # ---------------------------------------------------------------- booking
+  - id: booking_requires_vehicle
+    priority: 60
+    when: {field: turn.intent, op: eq, value: book_service}
+    then:
+      - require:
+          condition: "vehicle_identified"
+          reason: "Confirm the vehicle and registration before booking"
+
+  - id: pickup_area_check
+    priority: 61
+    when:
+      all:
+        - {field: turn.intent, op: eq, value: request_pickup}
+        - {field: customer.region_code, op: not_in, value: ["GJ-VAPI", "GJ-VALSAD", "GJ-DAMAN", "GJ-SILV"]}
+    then:
+      - block: {scope: "tool:book_pickup", reason: "Outside the pickup and drop service area"}
+
+  - id: same_day_cutoff
+    priority: 62
+    when:
+      all:
+        - {field: turn.intent, op: eq, value: same_day_service}
+        - {field: now.local_time, op: gt, value: "11:00"}
+    then:
+      - block: {scope: "tool:book_appointment", reason: "Same-day slots close at 11:00"}
+
+  - id: sunday_workshop_closed
+    priority: 63
+    when:
+      all:
+        - {field: turn.intent, op: eq, value: book_service}
+        - {field: now.weekday, op: eq, value: 6}
+    then:
+      - set: {workshop_open: false}
+
+  - id: reschedule_limit
+    priority: 64
+    when:
+      all:
+        - {field: turn.intent, op: eq, value: reschedule_appointment}
+        - {field: customer.tags, op: contains, value: rescheduled_twice}
+    then:
+      - escalate: {type: scheduled, reason: "Third reschedule - service advisor should call"}
+
+  - id: cancellation_within_24h
+    priority: 65
+    when:
+      all:
+        - {field: turn.intent, op: eq, value: cancel_appointment}
+        - {field: customer.tags, op: contains, value: appointment_within_24h}
+    then:
+      - require:
+          condition: "cancellation_fee_disclosed"
+          reason: "Disclose the late-cancellation fee before cancelling"
+
+  # ---------------------------------------------------------------- speech
+  - id: low_stt_confidence
+    priority: 70
+    when: {field: turn.stt_confidence, op: lt, value: 0.55}
+    then:
+      - require:
+          condition: "utterance_confirmed"
+          reason: "Speech recognition confidence is low - read it back before acting"
+
+  - id: very_low_stt_no_actions
+    priority: 71
+    when: {field: turn.stt_confidence, op: lt, value: 0.35}
+    then:
+      - block: {scope: "tool:*", reason: "Speech too unclear to act on"}
+
+  - id: long_call_check_in
+    priority: 72
+    when: {field: session.turn_index, op: gte, value: 18}
+    then:
+      - escalate: {type: scheduled, reason: "Call is running long without resolution"}
+
+  - id: going_in_circles
+    priority: 73
+    when:
+      all:
+        - {field: session.turn_index, op: gte, value: 12}
+        - {field: turn.intent, op: eq, value: repeat_question}
+    then:
+      - escalate: {type: immediate, reason: "Customer is repeating themselves - agent is stuck"}
+
+  # ---------------------------------------------------------------- language
+  - id: gujarati_preference
+    priority: 80
+    when: {field: customer.preferred_language, op: eq, value: gu}
+    then:
+      - set: {response_language: gujarati}
+
+  - id: hindi_preference
+    priority: 81
+    when: {field: customer.preferred_language, op: eq, value: hi}
+    then:
+      - set: {response_language: hindi}
+
+  - id: language_switch_request
+    priority: 82
+    when: {field: turn.intent, op: eq, value: change_language}
+    then:
+      - set: {allow_language_switch: true}
+
+  # ---------------------------------------------------------------- misc
+  - id: recording_disclosure_first
+    priority: 90
+    when:
+      all:
+        - {field: session.channel, op: eq, value: voice}
+        - {field: session.turn_index, op: eq, value: 0}
+    then:
+      - require:
+          condition: "recording_disclosed"
+          reason: "Play the recording disclosure before anything else"
+
+  - id: fleet_pricing_confidential
+    priority: 91
+    when:
+      all:
+        - {field: customer.tags, op: not_contains, value: fleet_account}
+        - {field: turn.intent, op: eq, value: fleet_pricing}
+    then:
+      - block: {scope: "tool:knowledge_lookup", reason: "Fleet pricing is not disclosed to retail customers"}
+
+  - id: competitor_comparison
+    priority: 92
+    when: {field: turn.intent, op: eq, value: competitor_comparison}
+    then:
+      - block: {scope: all, reason: "Do not comment on competitors"}
+
+  - id: employment_enquiry
+    priority: 93
+    when: {field: turn.intent, op: eq, value: job_enquiry}
+    then:
+      - set: {redirect_to: "careers@vahancare.example"}
+
+  - id: media_enquiry
+    priority: 94
+    when: {field: turn.intent, op: eq, value: media_enquiry}
+    then:
+      - escalate: {type: immediate, reason: "Press enquiry - never answered by the agent"}
+
+  - id: turn_policy_evaluated
+    priority: 999
+    when: {field: context.event, op: eq, value: turn}
+    then:
+      - set: {turn_policy_evaluated: true}

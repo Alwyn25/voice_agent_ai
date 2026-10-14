@@ -1,0 +1,317 @@
+rule_set: dsr_calling_policy
+description: >
+  DSR Highland Greenz outbound calling policy. Property is a considered purchase with a
+  long cycle, so the frequency caps are tighter than a service business would use and the
+  segment rules matter more — a lead who came through a broker, or who lives in another
+  city, should not receive the same outreach as a walk-in.
+applies_to: [outbound_call]
+rules:
+
+  # ---------------------------------------------------------------- consent
+  - id: dnc_absolute
+    priority: 0
+    terminal: true
+    when:
+      any:
+        - {field: customer.on_dnc_list, op: eq, value: true}
+        - {field: customer.current_state, op: eq, value: do_not_contact}
+    then:
+      - block: {scope: all, reason: "Lead is on the Do-Not-Contact list"}
+
+  - id: marketing_opt_out
+    priority: 5
+    when:
+      all:
+        - {field: customer.on_dnc_marketing, op: eq, value: true}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Lead opted out of promotional contact"}
+
+  - id: legal_dispute_freeze
+    priority: 6
+    terminal: true
+    when: {field: customer.tags, op: contains, value: legal_dispute}
+    then:
+      - block: {scope: all, reason: "Account in legal dispute — all automated contact suspended"}
+
+  - id: invalid_contact_details
+    priority: 7
+    terminal: true
+    when: {field: customer.tags, op: contains, value: invalid_contact}
+    then:
+      - block: {scope: all, reason: "Contact details flagged invalid"}
+
+  # ---------------------------------------------------------------- hours
+  - id: legal_calling_hours
+    priority: 10
+    when:
+      all:
+        - {field: customer.has_contact_window, op: eq, value: false}
+        - not: {field: now.local_time, op: between, value: ["09:00", "21:00"]}
+    then:
+      - block: {scope: outbound_call, reason: "Outside permitted calling hours (09:00-21:00)"}
+
+  - id: lead_preferred_hours
+    priority: 11
+    when:
+      all:
+        - {field: customer.has_contact_window, op: eq, value: true}
+        - not:
+            field: now.local_time
+            op: between
+            value: ["$customer.preferred_contact_start", "$customer.preferred_contact_end"]
+    then:
+      - block: {scope: outbound_call, reason: "Outside the hours this lead asked to be called in"}
+
+  - id: no_marketing_before_ten
+    priority: 12
+    when:
+      all:
+        - {field: session.purpose, op: eq, value: marketing}
+        - {field: now.local_time, op: lt, value: "10:00"}
+    then:
+      - block: {scope: marketing, reason: "Promotional calls do not start before 10:00"}
+
+  - id: no_marketing_after_eight
+    priority: 13
+    when:
+      all:
+        - {field: session.purpose, op: eq, value: marketing}
+        - {field: now.local_time, op: gt, value: "20:00"}
+    then:
+      - block: {scope: marketing, reason: "Promotional calls stop at 20:00"}
+
+  - id: weekend_is_for_site_visits
+    priority: 14
+    when:
+      all:
+        - {field: now.is_weekend, op: eq, value: true}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Weekends are reserved for site visit coordination, not promotions"}
+
+  # ---------------------------------------------------------------- frequency
+  - id: daily_attempt_cap
+    priority: 20
+    when: {field: counters.attempts_today, op: gte, value: 2}
+    then:
+      - block: {scope: outbound_call, reason: "Two call attempts a day is the limit on a property enquiry"}
+
+  - id: marketing_daily_cap
+    priority: 21
+    when:
+      all:
+        - {field: session.purpose, op: eq, value: marketing}
+        - {field: counters.attempts_today, op: gte, value: 1}
+    then:
+      - block: {scope: marketing, reason: "One promotional call per day maximum"}
+
+  - id: stop_after_repeated_no_answer
+    priority: 22
+    when: {field: counters.consecutive_no_answer, op: gte, value: 4}
+    then:
+      - block: {scope: outbound_call, reason: "Four consecutive unanswered calls"}
+
+  - id: back_off_after_two_no_answer
+    priority: 23
+    when:
+      all:
+        - {field: counters.consecutive_no_answer, op: gte, value: 2}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Two unanswered calls — pausing promotional outreach"}
+
+  - id: failed_interaction_ceiling
+    priority: 24
+    when: {field: counters.failed_interactions, op: gte, value: 3}
+    then:
+      - block: {scope: outbound_call, reason: "Repeated failed interactions — needs human review"}
+
+  - id: lifetime_contact_ceiling
+    priority: 25
+    when: {field: counters.total_calls, op: gte, value: 25}
+    then:
+      - block: {scope: marketing, reason: "Lifetime promotional contact ceiling reached"}
+
+  # ---------------------------------------------------------------- journey stage
+  - id: closed_lost_no_outreach
+    priority: 30
+    when: {field: customer.current_state, op: eq, value: closed_lost}
+    then:
+      - block: {scope: marketing, reason: "Lead marked closed-lost"}
+
+  # Once money has changed hands the relationship changes. Marketing a different unit to
+  # someone mid-purchase reads as a mistake, not an offer.
+  - id: token_paid_no_promotions
+    priority: 31
+    when:
+      all:
+        - {field: customer.current_state, op: in, value: [booking_token, documentation, converted]}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Lead has already committed — no promotional calls"}
+
+  - id: visit_scheduled_no_promotions
+    priority: 32
+    when:
+      all:
+        - {field: customer.current_state, op: eq, value: site_visit_scheduled}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Site visit already booked — do not distract with offers"}
+
+  - id: negotiation_is_human_work
+    priority: 33
+    when:
+      all:
+        - {field: customer.current_state, op: eq, value: negotiation}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Lead is negotiating — the sales executive owns this conversation"}
+
+  - id: new_lead_one_attempt_a_day
+    priority: 34
+    when:
+      all:
+        - {field: customer.current_state, op: eq, value: lead}
+        - {field: counters.attempts_today, op: gte, value: 1}
+    then:
+      - block: {scope: outbound_call, reason: "New enquiry — one attempt per day while warming up"}
+
+  # ---------------------------------------------------------------- segment
+  # A broker owns their client relationship. Calling their lead with a direct offer is how
+  # a channel partner stops sending you leads.
+  - id: channel_partner_no_direct_promotion
+    priority: 40
+    when:
+      all:
+        - {field: customer.tags, op: contains, value: channel_partner}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Lead came through a channel partner — the broker handles offers"}
+
+  - id: channel_partner_source_no_upsell
+    priority: 41
+    when:
+      all:
+        - {field: customer.lead_source, op: contains, value: Realty}
+        - {field: session.purpose, op: eq, value: upsell}
+    then:
+      - block: {scope: marketing, reason: "Broker-sourced lead — no direct upsell"}
+
+  # Someone in another city cannot attend a site visit, so a visit campaign wastes the call
+  # and the lead's patience. They still get service and follow-up calls.
+  - id: out_of_city_not_in_visit_campaign
+    priority: 42
+    when:
+      all:
+        - {field: customer.region_code, op: not_in, value: ["KA-BLR"]}
+        - {field: session.purpose, op: eq, value: site_visit_campaign}
+    then:
+      - block: {scope: marketing, reason: "Lead is outside Bengaluru — offer a virtual walkthrough instead"}
+
+  - id: out_of_city_no_walk_in_promo
+    priority: 43
+    when:
+      all:
+        - {field: customer.tags, op: contains, value: out_of_city}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Out-of-city lead — promotions tied to a visit do not apply"}
+
+  - id: vip_requires_senior_executive
+    priority: 44
+    when: {field: customer.priority_score, op: gte, value: 85}
+    then:
+      - require:
+          condition: senior_executive_available
+          reason: "High-value lead — route to a senior sales executive"
+
+  - id: low_priority_off_peak_only
+    priority: 45
+    when:
+      all:
+        - {field: customer.priority_score, op: lt, value: 25}
+        - {field: now.local_time, op: between, value: ["17:00", "21:00"]}
+    then:
+      - block: {scope: marketing, reason: "Low-priority outreach is off-peak only"}
+
+  - id: test_record_excluded
+    priority: 46
+    when: {field: customer.tags, op: contains, value: test_record}
+    then:
+      - block: {scope: all, reason: "Test record — excluded from live campaigns"}
+
+  # ---------------------------------------------------------------- language
+  - id: hindi_preference
+    priority: 50
+    when: {field: customer.preferred_language, op: eq, value: hi}
+    then:
+      - set: {agent_language: hindi}
+
+  - id: kannada_not_supported
+    priority: 51
+    when: {field: customer.preferred_language, op: eq, value: kn}
+    then:
+      - block: {scope: outbound_call, reason: "Kannada is not yet supported by the voice agent"}
+
+  # ---------------------------------------------------------------- campaign fit
+  - id: no_promo_to_recent_complainant
+    priority: 60
+    when:
+      all:
+        - {field: customer.tags, op: contains, value: complained_last_30d}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Complained within the last 30 days"}
+
+  - id: churn_risk_goes_to_a_human
+    priority: 61
+    when:
+      all:
+        - {field: customer.tags, op: contains, value: churn_risk}
+        - {field: customer.priority_score, op: gte, value: 60}
+    then:
+      - escalate:
+          type: scheduled
+          reason: "High-value lead going cold — a person should make this call, not the agent"
+
+  - id: dormant_needs_a_reason_to_call
+    priority: 62
+    when:
+      all:
+        - {field: customer.current_state, op: eq, value: dormant}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - require:
+          condition: new_inventory_or_offer
+          reason: "Only re-engage a dormant lead when something has actually changed"
+
+  - id: feedback_survey_after_visit_only
+    priority: 63
+    when:
+      all:
+        - {field: session.purpose, op: eq, value: feedback_survey}
+        - {field: customer.current_state, op: not_in, value: [site_visit_done, converted]}
+    then:
+      - block: {scope: outbound_call, reason: "Feedback surveys run only after a completed site visit"}
+
+  - id: unverified_number_format
+    priority: 70
+    when: {field: customer.phone, op: not_contains, value: "+91"}
+    then:
+      - block: {scope: outbound_call, reason: "Phone number is not in international format"}
+
+  - id: repeated_failures_need_review
+    priority: 71
+    when: {field: counters.failed_interactions, op: gte, value: 2}
+    then:
+      - require:
+          condition: supervisor_reviewed
+          reason: "Repeated failures — a supervisor should review before calling again"
+
+  - id: calling_policy_evaluated
+    priority: 999
+    when: {field: context.event, op: eq, value: outbound_call}
+    then:
+      - set: {policy_evaluated: true}

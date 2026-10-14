@@ -1,0 +1,42 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+psycopg2-binary==2.9.10
+alembic==1.14.0
+pydantic==2.10.6
+pydantic-settings==2.7.0
+redis==5.2.1
+pgvector==0.3.6
+PyJWT==2.10.1
+bcrypt==4.2.1
+email-validator==2.2.0
+jsonschema==4.23.0
+PyYAML==6.0.2
+openai==1.109.1
+httpx==0.28.1
+python-multipart==0.0.20
+pipecat-ai[deepgram,elevenlabs,websocket,whisper,piper]==1.7.0
+indic-transliteration==2.3.82
+# R5.01 cross-encoder reranker (app/engine/rag/reranker.py). All three were already installed
+# transitively via pipecat[whisper] / faster-whisper; pinned here at the resolved versions so
+# the reranker does not silently lose its runtime if that extra ever changes.
+onnxruntime==1.24.4
+tokenizers==0.23.2
+huggingface_hub==1.32.0
+cryptography==43.0.3
+langgraph==1.2.11
+langgraph-checkpoint==4.2.0
+langgraph-checkpoint-postgres==3.1.2
+psycopg[binary,pool]==3.3.5
+# Knowledge uploads (app/api/knowledge.py): text out of PDF and DOCX files. pypdf is also
+# what the GTM demo uses for uploaded brochures / price sheets (app/demo/extract.py).
+pypdf==6.19.0
+python-docx==1.2.0
+# GTM demo links: reading the prospect workbook (.xlsx) for data upload (app/demo/importer.py).
+openpyxl==3.1.5
+
+# GTM demo leads (docs/gtm-demo-links.md §10.3): Google Sheet + lead email
+gspread==6.1.4
+google-auth==2.35.0
+aiosmtplib==3.0.2

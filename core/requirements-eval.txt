@@ -1,0 +1,16 @@
+# Retrieval-accuracy evaluation only (scripts/eval_retrieval_ragas.py). Deliberately kept
+# out of requirements.txt: ragas pulls in langchain + HuggingFace datasets, which the
+# running app never touches, and there is no reason for that weight in the production
+# image. Install inside the container on demand:
+#   docker compose exec core pip install -r requirements-eval.txt
+ragas
+langchain-openai
+# ragas 0.4.3's ragas/llms/base.py does a top-level import of
+# langchain_community.chat_models.vertexai, which pip's default resolution (langchain-community
+# 0.4.x) no longer ships at that path -- ImportError before ragas even loads. Pinning below 0.4
+# keeps the module ragas actually needs.
+langchain-community<0.4
+# scripts/eval_rag_accuracy.py writes its report as .xlsx. That script needs only this (plus the
+# openai package already in the image), so its compose command installs openpyxl alone rather
+# than this whole file.
+openpyxl

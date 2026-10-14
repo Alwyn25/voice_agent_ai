@@ -1,0 +1,63 @@
+# Restaurants — table booking, one flagship outlet per demo.
+# Source: the "Restaurants" tab and the Field guide of the prospect workbook (Phonn_list_3.xlsx).
+#
+# DATA ONLY: no demo agent yet (no sample_data / sample_template / agent / prompts). The tab
+# imports normally — company records, people, facts and each record's knowledge base — but
+# demo links can't be made until a later version adds the agent. Loaded into demo_industries
+# on first start when the industry does not exist yet; after that, admins manage it.
+key: restaurants
+label: Restaurants
+version: 1
+
+use_case:
+  key: table_booking
+  label: Table booking (one flagship outlet per demo)
+
+trusted_sources: >-
+  Trusted sources only: the restaurant's official website (including its own booking engine
+  and menu) and its verified Google Business Profile. No food-delivery apps, dining
+  aggregators or third-party booking sites. A field no trusted source states stays blank,
+  and the agent offers to confirm it.
+
+facts_fields:
+  - {key: restaurant_name, label: Restaurant name, type: text, required: true, sheet_column: Restaurant name,
+     description: "Name and pronunciation"}
+  - {key: outlets, label: Outlets, type: text, required: true, sheet_column: Outlets,
+     description: "Address, area, map pin, opening hours per outlet"}
+  - {key: cuisine_and_format, label: Cuisine and format, type: text, sheet_column: Cuisine and format,
+     description: "Cuisine, veg or non-veg, bar or no bar, casual or fine dining"}
+  - {key: menu_highlights, label: Menu highlights, type: text, sheet_column: Menu highlights,
+     description: "10 signature dishes with prices"}
+  - {key: price_range, label: Price range, type: text, sheet_column: Price range,
+     description: "As shown by the restaurant"}
+  - {key: seating, label: Seating, type: text, sheet_column: Seating,
+     description: "Indoor, outdoor, rooftop, private dining and its capacity"}
+  - {key: reservation_policy, label: Reservation policy, type: text, sheet_column: Reservation policy,
+     description: "Table hold time, deposits, large-group rules"}
+  - {key: extras, label: Extras, type: text, sheet_column: Extras,
+     description: "Parking, valet, live music nights, kid-friendly"}
+
+# Minimum to go live (Field guide): name, 1 address and hours (required flags above), and
+# either the menu or the price range.
+minimum:
+  - {any_of: [menu_highlights, price_range], message: a menu or a price range}
+
+sheet:
+  tab_names: [Restaurants]
+  header_markers: [Restaurant or group, Restaurant name]
+  skip_statuses: [Not a fit]
+  example_markers: [Example]
+  company:
+    company_name: Restaurant or group
+    city: City
+    website_url: Official website URL
+    trigger_note: Trigger / notes
+    research_verified: Verified
+    research_status: Status
+    source_urls: Source URLs
+    fetched_at: Date scraped
+  contacts:
+    full_name: Buyer name
+    role: Buyer role
+    email: Email
+    linkedin_url: LinkedIn URL

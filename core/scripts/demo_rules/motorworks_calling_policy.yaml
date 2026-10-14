@@ -1,0 +1,371 @@
+rule_set: motorworks_calling_policy
+description: >
+  Motorworks Auto Care outbound calling policy. Deliberately large so the rule engine is
+  exercised under realistic load - this set is evaluated in full on every dial
+  and on every campaign preview row.
+applies_to: [outbound_call]
+rules:
+
+  # ---------------------------------------------------------------- consent
+  - id: dnc_absolute
+    priority: 0
+    terminal: true
+    when:
+      any:
+        - {field: customer.on_dnc_list, op: eq, value: true}
+        - {field: customer.current_state, op: eq, value: do_not_contact}
+    then:
+      - block: {scope: all, reason: "Customer is on the Do-Not-Contact list"}
+
+  - id: marketing_opt_out
+    priority: 5
+    when:
+      all:
+        - {field: customer.on_dnc_marketing, op: eq, value: true}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Customer opted out of promotional calls"}
+
+  - id: complaint_open_no_marketing
+    priority: 6
+    when:
+      all:
+        - {field: customer.tags, op: contains, value: open_complaint}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Open complaint - no promotional contact until resolved"}
+
+  - id: legal_dispute_freeze
+    priority: 7
+    terminal: true
+    when: {field: customer.tags, op: contains, value: legal_dispute}
+    then:
+      - block: {scope: all, reason: "Account in legal dispute - all automated contact suspended"}
+
+  - id: deceased_or_invalid
+    priority: 8
+    terminal: true
+    when: {field: customer.tags, op: contains, value: invalid_contact}
+    then:
+      - block: {scope: all, reason: "Contact details flagged invalid"}
+
+  # ---------------------------------------------------------------- hours
+  - id: business_calling_hours
+    priority: 10
+    when:
+      all:
+        - {field: customer.has_contact_window, op: eq, value: false}
+        - not: {field: now.local_time, op: between, value: ["09:00", "21:00"]}
+    then:
+      - block: {scope: outbound_call, reason: "Outside permitted calling hours (09:00-21:00)"}
+
+  - id: customer_preferred_hours
+    priority: 11
+    when:
+      all:
+        - {field: customer.has_contact_window, op: eq, value: true}
+        - not:
+            field: now.local_time
+            op: between
+            value: ["$customer.preferred_contact_start", "$customer.preferred_contact_end"]
+    then:
+      - block: {scope: outbound_call, reason: "Outside the customer's preferred contact hours"}
+
+  - id: no_marketing_before_ten
+    priority: 12
+    when:
+      all:
+        - {field: session.purpose, op: eq, value: marketing}
+        - {field: now.local_time, op: lt, value: "10:00"}
+    then:
+      - block: {scope: marketing, reason: "Promotional calls do not start before 10:00"}
+
+  - id: no_marketing_after_eight
+    priority: 13
+    when:
+      all:
+        - {field: session.purpose, op: eq, value: marketing}
+        - {field: now.local_time, op: gt, value: "20:00"}
+    then:
+      - block: {scope: marketing, reason: "Promotional calls stop at 20:00"}
+
+  - id: sunday_service_reminders_only
+    priority: 14
+    when:
+      all:
+        - {field: now.weekday, op: eq, value: 6}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "No promotional calls on Sundays"}
+
+  - id: weekend_late_start
+    priority: 15
+    when:
+      all:
+        - {field: now.is_weekend, op: eq, value: true}
+        - {field: now.local_time, op: lt, value: "10:00"}
+    then:
+      - block: {scope: outbound_call, reason: "Weekend calling starts at 10:00"}
+
+  - id: lunch_hour_quiet
+    priority: 16
+    when:
+      all:
+        - {field: session.purpose, op: eq, value: marketing}
+        - {field: now.local_time, op: between, value: ["13:00", "14:00"]}
+    then:
+      - block: {scope: marketing, reason: "Promotional calls paused during the lunch hour"}
+
+  # ---------------------------------------------------------------- frequency
+  - id: daily_attempt_cap
+    priority: 20
+    when: {field: counters.attempts_today, op: gte, value: 3}
+    then:
+      - block: {scope: outbound_call, reason: "Daily call attempt limit reached"}
+
+  - id: marketing_daily_cap
+    priority: 21
+    when:
+      all:
+        - {field: session.purpose, op: eq, value: marketing}
+        - {field: counters.attempts_today, op: gte, value: 1}
+    then:
+      - block: {scope: marketing, reason: "One promotional call per day maximum"}
+
+  - id: stop_after_repeated_no_answer
+    priority: 22
+    when: {field: counters.consecutive_no_answer, op: gte, value: 5}
+    then:
+      - block: {scope: outbound_call, reason: "Five consecutive unanswered calls"}
+
+  - id: back_off_after_three_no_answer
+    priority: 23
+    when:
+      all:
+        - {field: counters.consecutive_no_answer, op: gte, value: 3}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Three unanswered calls - pausing promotional outreach"}
+
+  - id: failed_interaction_ceiling
+    priority: 24
+    when: {field: counters.failed_interactions, op: gte, value: 4}
+    then:
+      - block: {scope: outbound_call, reason: "Too many failed interactions - needs human review"}
+
+  - id: lifetime_contact_ceiling
+    priority: 25
+    when: {field: counters.total_calls, op: gte, value: 40}
+    then:
+      - block: {scope: marketing, reason: "Lifetime promotional contact ceiling reached"}
+
+  # ---------------------------------------------------------------- state
+  - id: closed_lost_no_outreach
+    priority: 30
+    when: {field: customer.current_state, op: eq, value: closed_lost}
+    then:
+      - block: {scope: marketing, reason: "Customer marked closed-lost"}
+
+  - id: vehicle_sold_no_service_calls
+    priority: 31
+    when: {field: customer.tags, op: contains, value: vehicle_sold}
+    then:
+      - block: {scope: all, reason: "Customer no longer owns a serviced vehicle"}
+
+  - id: booked_no_promo
+    priority: 32
+    when:
+      all:
+        - {field: customer.current_state, op: eq, value: appointment_booked}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Service already booked - no promotional calls"}
+
+  - id: in_workshop_no_outreach
+    priority: 33
+    when: {field: customer.tags, op: contains, value: vehicle_in_workshop}
+    then:
+      - block: {scope: marketing, reason: "Vehicle currently in the workshop"}
+
+  - id: support_active_service_only
+    priority: 34
+    when:
+      all:
+        - {field: customer.current_state, op: eq, value: support_active}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Active support case - service contact only"}
+
+  - id: new_lead_cooling_period
+    priority: 35
+    when:
+      all:
+        - {field: customer.current_state, op: eq, value: new}
+        - {field: counters.attempts_today, op: gte, value: 1}
+    then:
+      - block: {scope: outbound_call, reason: "New lead - one attempt per day while warming up"}
+
+  # ---------------------------------------------------------------- segment
+  - id: fleet_account_manager_only
+    priority: 40
+    when: {field: customer.tags, op: contains, value: fleet_account}
+    then:
+      - block: {scope: marketing, reason: "Fleet accounts are handled by their account manager"}
+
+  - id: corporate_tie_up_no_retail_promo
+    priority: 41
+    when:
+      all:
+        - {field: customer.lead_source, op: eq, value: corporate_tie_up}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Corporate tie-up customers are excluded from retail promotions"}
+
+  - id: insurance_referral_no_upsell
+    priority: 42
+    when:
+      all:
+        - {field: customer.lead_source, op: eq, value: insurance_referral}
+        - {field: session.purpose, op: eq, value: upsell}
+    then:
+      - block: {scope: marketing, reason: "No upsell calls to insurance referral customers"}
+
+  - id: vip_requires_senior
+    priority: 43
+    when: {field: customer.priority_score, op: gte, value: 90}
+    then:
+      - require:
+          condition: "senior_executive_available"
+          reason: "High-value customer - route to a senior executive"
+
+  - id: low_priority_off_peak_only
+    priority: 44
+    when:
+      all:
+        - {field: customer.priority_score, op: lt, value: 20}
+        - {field: now.local_time, op: between, value: ["17:00", "21:00"]}
+    then:
+      - block: {scope: marketing, reason: "Low-priority outreach is off-peak only"}
+
+  - id: out_of_area_no_pickup_promo
+    priority: 45
+    when:
+      all:
+        - {field: customer.region_code, op: not_in, value: ["GJ-VAPI", "GJ-VALSAD", "GJ-DAMAN", "GJ-SILV"]}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Outside the pickup and drop service area"}
+
+  # ---------------------------------------------------------------- language
+  - id: language_capability_gujarati
+    priority: 50
+    when: {field: customer.preferred_language, op: eq, value: gu}
+    then:
+      - set: {agent_language: gujarati}
+
+  - id: language_capability_hindi
+    priority: 51
+    when: {field: customer.preferred_language, op: eq, value: hi}
+    then:
+      - set: {agent_language: hindi}
+
+  - id: language_capability_marathi
+    priority: 52
+    when: {field: customer.preferred_language, op: eq, value: mr}
+    then:
+      - block: {scope: outbound_call, reason: "Marathi is not yet supported by the voice agent"}
+
+  # ---------------------------------------------------------------- campaign
+  - id: no_promo_to_recent_complainant
+    priority: 60
+    when:
+      all:
+        - {field: customer.tags, op: contains, value: complained_last_30d}
+        - {field: session.purpose, op: eq, value: marketing}
+    then:
+      - block: {scope: marketing, reason: "Complained within the last 30 days"}
+
+  - id: warranty_expiry_reminder_window
+    priority: 61
+    when:
+      all:
+        - {field: session.purpose, op: eq, value: warranty_reminder}
+        - {field: customer.tags, op: not_contains, value: warranty_active}
+    then:
+      - block: {scope: outbound_call, reason: "No active warranty to remind about"}
+
+  - id: amc_renewal_only_for_amc
+    priority: 62
+    when:
+      all:
+        - {field: session.purpose, op: eq, value: amc_renewal}
+        - {field: customer.tags, op: not_contains, value: amc_holder}
+    then:
+      - block: {scope: outbound_call, reason: "Customer does not hold an annual maintenance contract"}
+
+  - id: survey_after_service_only
+    priority: 63
+    when:
+      all:
+        - {field: session.purpose, op: eq, value: feedback_survey}
+        - {field: customer.current_state, op: not_in, value: [service_completed, closed_won]}
+    then:
+      - block: {scope: outbound_call, reason: "Feedback surveys run only after a completed service"}
+
+  - id: test_segment_excluded
+    priority: 64
+    when: {field: customer.tags, op: contains, value: test_record}
+    then:
+      - block: {scope: all, reason: "Test record - excluded from live campaigns"}
+
+  - id: recent_purchase_no_upsell
+    priority: 65
+    when:
+      all:
+        - {field: customer.tags, op: contains, value: serviced_last_7d}
+        - {field: session.purpose, op: eq, value: upsell}
+    then:
+      - block: {scope: marketing, reason: "Serviced within the last week"}
+
+  # ---------------------------------------------------------------- quality
+  - id: unverified_number_format
+    priority: 70
+    when: {field: customer.phone, op: not_contains, value: "+91"}
+    then:
+      - block: {scope: outbound_call, reason: "Phone number is not in international format"}
+
+  - id: escalation_backlog_guard
+    priority: 71
+    when: {field: counters.failed_interactions, op: gte, value: 2}
+    then:
+      - require:
+          condition: "supervisor_reviewed"
+          reason: "Repeated failures - a supervisor should review before calling again"
+
+  - id: high_value_needs_briefing
+    priority: 72
+    when:
+      all:
+        - {field: customer.priority_score, op: gte, value: 75}
+        - {field: session.purpose, op: eq, value: retention}
+    then:
+      - require:
+          condition: "retention_briefing_prepared"
+          reason: "Retention call to a high-value customer needs a briefing"
+
+  - id: churn_risk_escalates
+    priority: 73
+    when:
+      all:
+        - {field: customer.tags, op: contains, value: churn_risk}
+        - {field: customer.priority_score, op: gte, value: 60}
+    then:
+      - escalate:
+          type: scheduled
+          reason: "High-value customer at churn risk - human should make this call"
+
+  - id: default_allow
+    priority: 999
+    when: {field: context.event, op: eq, value: outbound_call}
+    then:
+      - set: {policy_evaluated: true}

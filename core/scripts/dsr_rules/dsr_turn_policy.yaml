@@ -1,0 +1,368 @@
+rule_set: dsr_turn_policy
+description: >
+  DSR Highland Greenz in-conversation policy. Property is the largest purchase most
+  callers will make, and almost every number involved is regulated — RERA areas, price,
+  possession. The bulk of these rules exist to stop the agent committing to something only
+  a person can commit to.
+applies_to: [turn]
+rules:
+
+  # ---------------------------------------------------------------- hard stops
+  - id: dnc_state_stops_everything
+    priority: 0
+    terminal: true
+    when: {field: customer.current_state, op: eq, value: do_not_contact}
+    then:
+      - block: {scope: all, reason: "Lead has asked not to be contacted"}
+
+  - id: legal_dispute_to_a_human
+    priority: 1
+    terminal: true
+    when: {field: customer.tags, op: contains, value: legal_dispute}
+    then:
+      - escalate: {type: immediate, reason: "Account is in legal dispute — transfer to a person"}
+
+  # ---------------------------------------------------------------- identity
+  # The last four digits of the registered mobile. On an inbound call the number is
+  # already known, so this tests what the caller knows rather than what they are holding.
+  - id: identity_before_payment_talk
+    priority: 10
+    when:
+      all:
+        - {field: session.identity_verified, op: eq, value: false}
+        - {field: turn.intent, op: in, value: [payment_query, token_amount, refund_query]}
+    then:
+      - require:
+          condition: identity_verified
+          prompt_hint: verify_identity_flow
+          reason: "Ask for the last four digits of their registered mobile number, in this reply — not a general request for details"
+
+  - id: identity_before_booking_records
+    priority: 11
+    when:
+      all:
+        - {field: session.identity_verified, op: eq, value: false}
+        - {field: turn.intent, op: in, value: [my_booking, booking_status, documentation_status]}
+    then:
+      - require:
+          condition: identity_verified
+          prompt_hint: verify_identity_flow
+          reason: "Ask for the last four digits of their registered mobile number, in this reply — not a general request for details"
+
+  - id: identity_before_cancelling
+    priority: 12
+    when:
+      all:
+        - {field: session.identity_verified, op: eq, value: false}
+        - {field: turn.intent, op: in, value: [cancel, cancel_appointment]}
+    then:
+      - require:
+          condition: identity_verified
+          prompt_hint: verify_identity_flow
+          reason: "Ask for the last four digits of their registered mobile number, in this reply — not a general request for details"
+
+  # Moving someone's visit is a change to their record, so the generic action_policy
+  # already refuses it until identity is verified — but that rule only applies at
+  # "tool:*", which means it fires inside the executor, at the moment of execution. The
+  # planner never saw it, so the agent spent fifteen turns hunting for a slot, read it
+  # back, took the customer's yes, and only THEN said it needed to verify her identity.
+  # Stated here at turn level, it reaches the planner as a POLICY OBLIGATION and gets
+  # dealt with while the customer is still explaining what she wants.
+  # We sell apartments. A caller asking to rent one was told "I can assist with that" and
+  # walked through a booking flow that could never have helped. Policy, not phrasing —
+  # so it is visible in the Rule Engine and editable without a deploy.
+  - id: out_of_scope_request
+    priority: 20
+    when:
+      field: turn.intent
+      op: in
+      value: [rental_enquiry, rent, lease, resale, commercial_space, paying_guest]
+    then:
+      - require:
+          condition: state_the_scope_plainly
+          prompt_hint: sale_only_no_rentals
+          reason: "This project sells apartments only — no rentals, leases, resale or commercial. Say so plainly and offer nothing else."
+
+  # Only 3 BHK pricing is published. Quoting the 3 BHK rate at someone asking about a
+  # 1 BHK is not an approximation, it is a wrong number they may act on.
+  - id: unpublished_configuration_pricing
+    priority: 21
+    when:
+      field: turn.intent
+      op: in
+      value: [pricing_query, price_query, budget_query, cost_query]
+    then:
+      - require:
+          condition: quote_only_published_prices
+          prompt_hint: published_pricing_only
+          reason: "Quote a price only for a configuration whose cost sheet you hold. For any other, say it is not published and offer a callback."
+
+  # Booking is deliberately NOT here.
+  #
+  # Creating a visit needs nothing that is not already the caller's to give: their name,
+  # a day, a time. The worst outcome of getting it wrong is a wasted slot. Changing or
+  # cancelling an EXISTING booking is different — it acts on a record that belongs to
+  # someone, and the agent has to know the caller is that someone before moving their
+  # visit. Asking a new enquiry to verify itself would also be asking them to prove they
+  # are a customer we have never met.
+  #
+  # If the business wants identity on booking too, add book_appointment to the intents
+  # below. It is a policy decision, editable here, and it will cost conversions.
+  - id: identity_before_rescheduling
+    priority: 12
+    when:
+      all:
+        - {field: session.identity_verified, op: eq, value: false}
+        - {field: turn.intent, op: in, value: [reschedule, change_appointment, postpone]}
+        # There must BE a booking to reschedule.
+        #
+        # The model labels intent, and it gets this wrong: a new enquiry saying "I want it
+        # for tomorrow" while choosing a first slot came back as `reschedule`. The rule
+        # then demanded identity from someone who had never booked anything, in the middle
+        # of trying to book. Keying on the intent alone trusts a label; also requiring a
+        # journey state that implies an existing visit costs nothing and makes the false
+        # positive impossible.
+        - {field: customer.current_state, op: in, value: [site_visit_scheduled, offer_shared,
+            negotiation, booking_token, documentation]}
+    then:
+      - require:
+          condition: identity_verified
+          prompt_hint: verify_identity_flow
+          # The reason text is what the agent is told, so it has to name the question.
+          #
+          # "Verify the caller" produced two turns where one would do: "could you provide
+          # some details?", the customer says "yes", and only then "the last four digits
+          # of your registered mobile number, please". Nobody knows what "some details"
+          # means, and asking costs a turn on every single reschedule.
+          reason: "Ask for the last four digits of their registered mobile number, in this
+            reply — not a general request for details, and not a question about whether
+            they are willing"
+
+  - id: identity_before_changing_details
+    priority: 13
+    when:
+      all:
+        - {field: session.identity_verified, op: eq, value: false}
+        - {field: proposal.tool, op: eq, value: update_customer_profile}
+    then:
+      - require:
+          condition: identity_verified
+          prompt_hint: verify_identity_flow
+          reason: "Ask for the last four digits of their registered mobile number, in this reply — not a general request for details"
+
+  # Booking a visit is deliberately NOT gated. Making it hard to come and look at the
+  # property costs sales and protects nothing — the visit itself is where identity gets
+  # established in person.
+
+  # ---------------------------------------------------------------- opt-out
+  - id: opt_out_request
+    priority: 20
+    when: {field: turn.intent, op: in, value: [opt_out, do_not_call, remove_number]}
+    then:
+      - set: {honour_opt_out: true}
+
+  - id: no_pitch_after_opt_out
+    priority: 21
+    when: {field: turn.intent, op: in, value: [opt_out, do_not_call]}
+    then:
+      - block: {scope: "tool:start_retention_offer", reason: "Never pitch after an opt-out request"}
+
+  # ---------------------------------------------------------------- what it must not promise
+  - id: cannot_negotiate_price
+    priority: 30
+    when: {field: turn.intent, op: in, value: [price_negotiation, discount_request, best_price]}
+    then:
+      - block:
+          scope: "tool:apply_discount"
+          reason: "The agent cannot negotiate. Quote the published price and offer a callback from a sales executive."
+
+  - id: no_improvised_offer
+    priority: 31
+    when: {field: turn.intent, op: eq, value: price_objection}
+    then:
+      - block:
+          scope: "tool:create_custom_offer"
+          reason: "Only published offers may be quoted"
+
+  # A possession date is a contractual commitment. Getting it wrong on a call is the kind
+  # of thing that ends up in front of a RERA authority.
+  - id: no_possession_commitment
+    priority: 32
+    when: {field: turn.intent, op: in, value: [possession_date, handover_date, completion_date]}
+    then:
+      - require:
+          condition: sales_executive_confirmed
+          reason: "Never commit to a possession date — refer to the RERA-registered timeline and offer a callback"
+
+  - id: no_specific_unit_availability
+    priority: 33
+    when: {field: turn.intent, op: in, value: [unit_availability, specific_flat, floor_availability]}
+    then:
+      - require:
+          condition: inventory_confirmed
+          reason: "Inventory moves during the day — never confirm a specific flat is available"
+
+  # Projecting rental yield or appreciation is investment advice, and it is not something
+  # a sales agent should be giving on a recorded call.
+  - id: no_investment_projections
+    priority: 34
+    when: {field: turn.intent, op: in, value: [rental_yield, appreciation, resale_value, roi]}
+    then:
+      - block:
+          scope: all
+          reason: "Do not project yield, appreciation or resale value. Share only published facts."
+
+  - id: no_loan_commitment
+    priority: 35
+    when: {field: turn.intent, op: in, value: [loan_eligibility, loan_approval, emi_commitment]}
+    then:
+      - require:
+          condition: loan_desk_confirmed
+          reason: "Loan eligibility is the bank's decision — refer to the loan desk"
+
+  - id: no_competitor_comparison
+    priority: 36
+    when: {field: turn.intent, op: eq, value: competitor_comparison}
+    then:
+      - block: {scope: all, reason: "Do not comment on other builders or projects"}
+
+  - id: no_legal_or_tax_advice
+    priority: 37
+    when: {field: turn.intent, op: in, value: [tax_advice, legal_advice, stamp_duty_calculation]}
+    then:
+      - require:
+          condition: legal_desk_confirmed
+          reason: "Registration and stamp duty are as per actuals — do not calculate them on a call"
+
+  # ---------------------------------------------------------------- accuracy
+  - id: quote_carpet_area_alongside_sba
+    priority: 40
+    when: {field: turn.intent, op: in, value: [area_query, size_query, carpet_area]}
+    then:
+      - require:
+          condition: rera_carpet_area_stated
+          reason: "RERA carpet area must be stated alongside super built-up area, never instead of it"
+
+  - id: total_cost_needs_the_cost_sheet
+    priority: 41
+    when: {field: turn.intent, op: in, value: [total_cost, all_inclusive_price]}
+    then:
+      - require:
+          condition: cost_sheet_retrieved
+          reason: "Quote the cost sheet total, not the per-square-foot rate multiplied out — the extras are most of the gap"
+
+  - id: offers_must_be_current
+    priority: 42
+    when: {field: turn.intent, op: in, value: [offer_query, discount_available]}
+    then:
+      - require:
+          condition: knowledge_retrieved
+          reason: "Only quote an offer that retrieval returned as live today"
+
+  # ---------------------------------------------------------------- escalation
+  - id: angry_lead_escalates
+    priority: 50
+    when:
+      all:
+        - {field: turn.sentiment, op: eq, value: angry}
+        - {field: session.turn_index, op: gte, value: 1}
+    then:
+      - escalate: {type: immediate, reason: "Lead is angry"}
+
+  - id: vip_negative_sentiment
+    priority: 51
+    when:
+      all:
+        - {field: customer.priority_score, op: gte, value: 80}
+        - {field: turn.sentiment, op: in, value: [negative, frustrated, angry]}
+    then:
+      - escalate: {type: immediate, reason: "High-value lead is unhappy"}
+
+  - id: sustained_frustration
+    priority: 52
+    when:
+      all:
+        - {field: turn.sentiment, op: in, value: [frustrated, angry]}
+        - {field: session.turn_index, op: gte, value: 5}
+    then:
+      - escalate: {type: immediate, reason: "Frustration has persisted across the call"}
+
+  - id: abusive_language
+    priority: 53
+    terminal: true
+    when: {field: turn.intent, op: eq, value: abusive}
+    then:
+      - escalate: {type: immediate, reason: "Abusive language — hand to a supervisor"}
+
+  - id: pricing_dispute
+    priority: 54
+    when: {field: turn.intent, op: in, value: [billing_dispute, overcharge, cost_sheet_dispute]}
+    then:
+      - escalate: {type: scheduled, reason: "Pricing dispute needs an account review"}
+
+  - id: cancellation_or_refund_request
+    priority: 55
+    when: {field: turn.intent, op: in, value: [booking_cancellation, refund_request]}
+    then:
+      - escalate: {type: immediate, reason: "A booking cancellation or refund is never handled by the agent"}
+
+  - id: media_enquiry
+    priority: 56
+    when: {field: turn.intent, op: eq, value: media_enquiry}
+    then:
+      - escalate: {type: immediate, reason: "Press enquiry — never answered by the agent"}
+
+  # ---------------------------------------------------------------- conduct
+  # Low speech-recognition confidence is handled by the ENGINE, not by turn rules here. Two
+  # rules used to live here and made voice calls behave differently from chat on the same
+  # words:
+  #   low_speech_confidence (< 0.55, require utterance_confirmed) -- nothing can ever capture
+  #     an "utterance" slot, so every such turn was replaced by "may I ask what your utterance
+  #     is?" and no tool ran, twice per call;
+  #   very_low_speech_no_actions (< 0.35, block tool:*) -- blocked every tool, lookups and the
+  #     tool behind a "yes" included.
+  # Deepgram's multi-language model scores short, correctly-heard answers low as a matter of
+  # course ("11" at 0.32, "okay" at 0.57), so both fired on ordinary speech. The intent --
+  # never ACT on words that may have been misheard -- is enforced by the engine for every
+  # tenant: below conf_stt_readback_below (0.55) any write is read back before it runs
+  # (planner.banded_action), writes needing consent are always read back anyway, and the
+  # planner is told when the audio was unclear. Lookups and answers are never held back.
+
+  - id: going_in_circles
+    priority: 62
+    when:
+      all:
+        - {field: session.turn_index, op: gte, value: 10}
+        - {field: turn.intent, op: eq, value: repeat_question}
+    then:
+      - escalate: {type: immediate, reason: "Lead is repeating themselves — the agent is stuck"}
+
+  - id: long_call_check_in
+    priority: 63
+    when: {field: session.turn_index, op: gte, value: 20}
+    then:
+      - escalate: {type: scheduled, reason: "Call is running long without resolution"}
+
+  # The recording disclosure is spoken in the voice call's OPENING LINE (tenant setting
+  # settings.recording_disclosure, app/api/sessions.with_recording_disclosure) -- the only
+  # point guaranteed to come before the caller's first word. The turn rule that used to stand
+  # here (recording_disclosure_first) could never fire: it keyed on session.turn_index == 0,
+  # but the caller's first turn is 1, and nothing could set its recording_disclosed flag.
+
+  - id: hindi_response
+    priority: 71
+    when: {field: customer.preferred_language, op: eq, value: hi}
+    then:
+      - set: {response_language: hindi}
+
+  - id: job_enquiry
+    priority: 72
+    when: {field: turn.intent, op: eq, value: job_enquiry}
+    then:
+      - set: {redirect_to: "sales@dsrinfra.com"}
+
+  - id: turn_policy_evaluated
+    priority: 999
+    when: {field: context.event, op: eq, value: turn}
+    then:
+      - set: {turn_policy_evaluated: true}
