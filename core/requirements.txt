@@ -8,14 +8,14 @@ pydantic==2.10.6
 pydantic-settings==2.7.0
 redis==5.2.1
 pgvector==0.3.6
-PyJWT==2.10.1
+PyJWT==2.15.0
 bcrypt==4.2.1
 email-validator==2.2.0
 jsonschema==4.23.0
 PyYAML==6.0.2
 openai==1.109.1
 httpx==0.28.1
-python-multipart==0.0.20
+python-multipart==0.0.31
 pipecat-ai[deepgram,elevenlabs,websocket,whisper,piper]==1.7.0
 indic-transliteration==2.3.82
 # R5.01 cross-encoder reranker (app/engine/rag/reranker.py). All three were already installed
@@ -24,7 +24,7 @@ indic-transliteration==2.3.82
 onnxruntime==1.24.4
 tokenizers==0.23.2
 huggingface_hub==1.32.0
-cryptography==43.0.3
+cryptography==50.0.0
 langgraph==1.2.11
 langgraph-checkpoint==4.2.0
 langgraph-checkpoint-postgres==3.1.2
@@ -39,4 +39,4 @@ openpyxl==3.1.5
 # GTM demo leads (docs/gtm-demo-links.md §10.3): Google Sheet + lead email
 gspread==6.1.4
 google-auth==2.35.0
-aiosmtplib==3.0.2
+aiosmtplib==5.1.2
